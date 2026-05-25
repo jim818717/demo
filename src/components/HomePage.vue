@@ -3,6 +3,9 @@
     <div class="hr">
       <span class="hr-icon">|</span>
       <span class="hr-text">日常测量</span>
+      <span class="connection-status" :class="{ connected: isConnected }">
+        {{ isConnected ? '已连接' : '未连接' }}
+      </span>
     </div>
 
     <div class="body">
@@ -61,16 +64,80 @@
 </template>
 
 <script>
+import mqtt from 'mqtt/dist/mqtt.min.js'
+
+const MQTT_BROKER_URL = 'ws://localhost:8083/mqtt'
+const MQTT_TOPIC = '/mqtt/testtopic'
+
 export default {
   name: 'HomePage',
   data() {
     return {
       Temp: '~',
       Pulse: '~',
-      Sao2: '~'
+      Sao2: '~',
+      isConnected: false,
+      mqttClient: null
+    }
+  },
+  mounted() {
+    this.initMQTT()
+  },
+  beforeUnmount() {
+    if (this.mqttClient) {
+      this.mqttClient.end()
     }
   },
   methods: {
+    initMQTT() {
+      this.mqttClient = mqtt.connect(MQTT_BROKER_URL, {
+        username: 'minapp',
+        password: 'minapp123',
+        clientId: 'webapp_' + Math.random().toString(16).substr(2, 8)
+      })
+
+      this.mqttClient.on('connect', () => {
+        console.log('MQTT connected')
+        this.isConnected = true
+        this.mqttClient.subscribe(MQTT_TOPIC, (err) => {
+          if (!err) {
+            console.log('Subscribed to:', MQTT_TOPIC)
+          } else {
+            console.error('Subscribe error:', err)
+          }
+        })
+      })
+
+      this.mqttClient.on('message', (topic, message) => {
+        console.log('Received topic:', topic)
+        console.log('Received message:', message.toString())
+        try {
+          const dataFromDev = JSON.parse(message.toString())
+          if (dataFromDev.params) {
+            this.Temp = dataFromDev.params.Temp || '~'
+            this.Pulse = dataFromDev.params.Pulse || '~'
+            this.Sao2 = dataFromDev.params.SPO2 || '~'
+            console.log('Updated data:', this.Temp, this.Pulse, this.Sao2)
+          }
+        } catch (e) {
+          console.error('JSON parse error:', e)
+        }
+      })
+
+      this.mqttClient.on('error', (err) => {
+        console.error('MQTT error:', err)
+        this.isConnected = false
+      })
+
+      this.mqttClient.on('close', () => {
+        console.log('MQTT disconnected')
+        this.isConnected = false
+      })
+
+      this.mqttClient.on('reconnect', () => {
+        console.log('MQTT reconnecting...')
+      })
+    },
     goToHistory() {
       this.$router.push('/history')
     }
@@ -105,6 +172,19 @@ export default {
   font-size: 16px;
   font-weight: 600;
   color: #333;
+}
+
+.connection-status {
+  margin-left: auto;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background-color: #ff4d4f;
+  color: white;
+}
+
+.connection-status.connected {
+  background-color: #52c41a;
 }
 
 .body {
